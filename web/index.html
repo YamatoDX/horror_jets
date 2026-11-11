@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nosferatu: Blood Moon Sorties</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:Georgia,'Times New Roman',serif;color:#cfc6b4}
+  canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
+  #hud{pointer-events:none}
+  #ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+      background:radial-gradient(ellipse at center,rgba(10,0,0,.72),rgba(0,0,0,.95));cursor:pointer;padding:2vmin;box-sizing:border-box;overflow:auto}
+  #ov h1{font-size:clamp(26px,5.2vmin,60px);letter-spacing:.12em;margin:0 0 .15em;color:#b11414;text-shadow:0 0 18px #600,0 2px 0 #000;font-weight:normal}
+  #ov h2{font-size:clamp(13px,2.2vmin,24px);margin:0 0 1em;font-style:italic;color:#8a8372;font-weight:normal;letter-spacing:.08em}
+  #ov p{margin:.22em 0;font-size:clamp(11px,1.8vmin,18px);line-height:1.45;max-width:54em}
+  #ov .k{display:inline-block;border:1px solid #6b6252;border-radius:4px;padding:0 .45em;margin:0 .1em;background:#16120e;color:#e0d6bd;font-size:.9em}
+  #ov .sec{color:#d8c9a0;margin-top:.9em;letter-spacing:.1em;font-size:clamp(12px,1.9vmin,19px)}
+  #ov .go{margin-top:1.3em;font-size:clamp(14px,2.5vmin,26px);color:#d8c9a0;animation:pulse 1.6s infinite}
+  @keyframes pulse{50%{opacity:.35}}
+  .hide{display:none!important}
+  #err{position:absolute;left:0;bottom:0;color:#f66;font:11px monospace;white-space:pre-wrap;z-index:9;max-width:60%}
+</style>
+</head>
+<body>
+<canvas id="c3"></canvas>
+<canvas id="hud"></canvas>
+<div id="ov"></div>
+<div id="err"></div>
+<script src="three.min.js"></script>
+<script src="core.js"></script>
+<script src="world.js"></script>
+<script src="jets.js"></script>
+<script src="enemies.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
