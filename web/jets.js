@@ -146,16 +146,16 @@ function updateBullets(dt) {
 }
 const _mm = new THREE.Matrix4();
 function fireCannon(j) {
-  if (j.ammo <= 0 || !j.alive) return; j.ammo--;
-  const f = _f.set(0, 0, -1).applyQuaternion(j.q), side = (j.ammo & 1) ? -.9 : .9;
+  if (!j.alive) return; j.ammo = (j.ammo | 0) + 1 - 1; j.shots = (j.shots || 0) + 1; /* infinite ammo */
+  const f = _f.set(0, 0, -1).applyQuaternion(j.q), side = (j.shots & 1) ? -.9 : .9;
   _r.set(side, .1, -7).applyQuaternion(j.q).add(j.pos);
   const sp = .007; _u.set(rand(-sp, sp), rand(-sp, sp), 0).applyQuaternion(j.q);
   _v.copy(f).add(_u).normalize().multiplyScalar(1150).add(j.vel);
-  spawnBullet(_r, _v, 1.5); if (j.ammo % 3 === 0) { sfx.cannon(); puff(_r.x, _r.y, _r.z, 0, 0, 0, .06, 2, 3, '#ffe9a0', true, .9); }
+  spawnBullet(_r, _v, 1.5); if (j.shots % 3 === 0) { sfx.cannon(); puff(_r.x, _r.y, _r.z, 0, 0, 0, .06, 2, 3, '#ffe9a0', true, .9); }
 }
 function fireMissile(j) {
-  if (!j.alive || j.mslN <= 0 || j.mT > 0) { if (j.mslN <= 0) sfx.dry(); return; }
-  const i = j.d.msl - j.mslN; j.mslN--; j.mT = .45; j.mdl.msl[i].visible = false;
+  if (!j.alive || j.mT > 0) return;
+  const i = (j.mi = ((j.mi || 0) + 1) % j.d.msl); j.mT = .45; /* infinite missiles */
   const m = mkMsl(j.type === 'f14' ? 3.9 : 3.3, j.type === 'f14' ? .19 : .14), sl = j.mdl.slots[i]; scene.add(m);
   const p = new V3(sl[0], sl[1], sl[2]).applyQuaternion(j.q).add(j.pos);
   const f = new V3(0, 0, -1).applyQuaternion(j.q), dn = new V3(0, -1, 0).applyQuaternion(j.q);
@@ -167,7 +167,7 @@ function fireMissile(j) {
 function updateMissiles(dt) {
   for (let i = MSL.length - 1; i >= 0; i--) {
     const m = MSL[i]; m.age += dt; let boom = false, hitPos = null;
-    if (m.age > .35) m.spd = Math.min(560, m.spd + 320 * dt);
+    if (m.age > .35) m.spd = Math.min(m.maxSpd || 560, m.spd + (m.acc || 320) * dt);
     if (m.tgt && m.tgt.alive && m.age > .4) {
       enemyCenter(m.tgt, _c); _v.copy(_c).sub(m.pos); const dist = _v.length(), tt = Math.min(dist / m.spd, 2.5); _v.copy(_c).addScaledVector(m.tgt.vel, tt * .9).sub(m.pos).normalize();
       const ang = Math.acos(clamp(m.dir.dot(_v), -1, 1)), turn = Math.min(ang, 3.6 * dt); if (ang > 1e-4) { _u.crossVectors(m.dir, _v).normalize(); if (_u.lengthSq() > .1) m.dir.applyAxisAngle(_u, turn).normalize(); }
@@ -178,8 +178,8 @@ function updateMissiles(dt) {
     const gh = groundH(_p2.x, _p2.z); if (!boom && _p2.y < gh) { boom = true; hitPos = _p2.clone(); }
     if (boom || m.age > 9) {
       const hp = hitPos || m.pos; scene.remove(m.m); MSL.splice(i, 1);
-      if (hp.y < 1 && groundH(hp.x, hp.z) < .3) { splash(hp); explosion(hp, .9); } else explosion(hp, 1.3);
-      blast(hp, 26, m.dmg, 'msl'); continue;
+      if (hp.y < 1 && groundH(hp.x, hp.z) < .3) { splash(hp); explosion(hp, .9); } else explosion(hp, m.esz || 1.3);
+      blast(hp, m.rad || 26, m.dmg, 'msl'); continue;
     }
     m.pos.copy(_p2); m.m.position.copy(m.pos); m.m.quaternion.setFromUnitVectors(_f.set(0, 0, -1), _v.copy(m.vel).normalize());
     puff(m.pos.x, m.pos.y, m.pos.z, 0, 0, 0, 1.8, 1.6, 7, '#c9ced8', false, .5, 'smoke');
@@ -211,7 +211,7 @@ function cycleLock() {
 }
 
 /* ---------------------------------------------------------------- damage / destruction */
-function damageJet(j, n) { if (!j.alive) return; j.hp -= n; shakeAmt = Math.max(shakeAmt, 2); if (j === pilotJet()) sfx.hurt(); if (j.hp <= 0) destroyJet(j, 'shot'); }
+function damageJet(j, n) { if (!j.alive) return; j.hp = j.d.hp; /* indestructible */ shakeAmt = Math.max(shakeAmt, 2); if (j === pilotJet()) sfx.hurt(); }
 function destroyJet(j, why) {
   if (!j.alive) return; j.alive = false; j.mesh.visible = false; j.respawn = 45;
   explosion(j.pos, 3, false); for (let i = 0; i < 14; i++) puff(j.pos.x, j.pos.y, j.pos.z, rand(-1, 1) * 30, rand(0, 1) * 30, rand(-1, 1) * 30, rand(1, 2.5), 3, 1, '#ff9030', true, 1, 'glow', 20);
@@ -251,8 +251,8 @@ function flyJet(j, dt, inp) {
   if (bottom <= gh) {
     const pitch = Math.asin(clamp(f.y, -1, 1)), roll = Math.asin(clamp(rt.y, -1, 1)), sp2 = j.vel.length(), vy = j.vel.y, sl = slopeAt(j.pos.x, j.pos.z);
     const ok = gh > .6 && j.gearT > .85 && vy > -10 && sp2 < d.vr * 2 && pitch > -.1 && pitch < .38 && Math.abs(roll) < .38 && sl < .2;
-    if (!ok) { j.pos.y = gh + 1; if (gh < .3) { splash(j.pos); } destroyJet(j, gh < .3 ? 'water' : 'crash'); return; }
-    if (vy < -5) { damageJet(j, (-vy - 5) * 14); addMsg('Hard landing!', 2); }
+    if (!ok) { /* indestructible: skid along the surface instead of crashing */ j.pos.y = Math.max(gh, .2) + d.gearH * (.45 + .55 * j.gearT) + .1; if (j.vel.y < 0) j.vel.y = 0; j.vel.multiplyScalar(1 - Math.min(.5, dt * 1.2)); if (gh < .3) { if (Math.random() < .3) splash(j.pos); } else sparks(j.pos, 3, '#ffd070', 10); if ((j._sm = (j._sm || 0) - dt) <= 0) { j._sm = 2; if (j === pilotJet()) addMsg('Terrain contact - pull up!', 1.5); } return; }
+    if (vy < -5) addMsg('Hard landing!', 2);
     j.onGround = true; j.gs = Math.hypot(j.vel.x, j.vel.z); j.gp = pitch; j.vel.y = 0; j.pos.y = gh + d.gearH; sfx.step(); sfx.step();
     puff(j.pos.x, gh + 1, j.pos.z, 0, 2, 0, 1.5, 4, 14, '#aaa89e', false, .5, 'smoke'); addMsg('Touchdown', 2);
   }
@@ -266,8 +266,8 @@ function groundStep(j, dt, inp) {
   j.q.setFromEuler(_e.set(j.gp, yaw, 0, 'YXZ'));
   j.vel.set(-Math.sin(yaw) * j.gs, 0, -Math.cos(yaw) * j.gs); j.pos.x += j.vel.x * dt; j.pos.z += j.vel.z * dt;
   const gh = groundH(j.pos.x, j.pos.z);
-  if (gh < .4) { destroyJet(j, 'water'); splash(j.pos); return; }
-  const hit = pushOut(j.pos, 6); if (hit) { if (j.gs > 12) { destroyJet(j, 'crash'); return; } j.gs *= .4; }
+  if (gh < .4) { j.pos.x -= j.vel.x * dt; j.pos.z -= j.vel.z * dt; j.gs = 0; return; }
+  const hit = pushOut(j.pos, 6); if (hit) j.gs *= .4;
   j.pos.y = gh + d.gearH;
   if (j.gs > d.vr && j.gp > .07) { j.onGround = false; f.set(0, 0, -1).applyQuaternion(j.q); j.vel.copy(f).multiplyScalar(j.gs); j.vel.y += 2; addMsg('Airborne — gear up with G', 3); }
 }
