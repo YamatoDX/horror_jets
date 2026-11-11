@@ -103,7 +103,7 @@ function launchFlare() {
 const lockEl = document.body;
 function lockPointer() { try { const p = document.body.requestPointerLock(); if (p && p.catch) p.catch(() => { noLock = true; }); } catch (e) { noLock = true; } }
 document.addEventListener('pointerlockerror', () => { noLock = true; });
-document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && state === 'play' && !noLock) pause(); });
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && state === 'play' && !noLock && performance.now() - fsT > 1500) pause(); });
 document.addEventListener('mousemove', e => { if (state !== 'play' || (!document.pointerLockElement && !noLock)) return; mouse.dx += e.movementX || 0; mouse.dy += e.movementY || 0; });
 document.addEventListener('mousedown', e => {
   if (state !== 'play') return; if (e.button === 0) mouse.l = true; if (e.button === 2) { mouse.r = true; if (P.mode === 'jet') JI.missile = true; }
@@ -111,7 +111,16 @@ document.addEventListener('mousedown', e => {
 document.addEventListener('mouseup', e => { if (e.button === 0) mouse.l = false; if (e.button === 2) mouse.r = false; });
 document.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('wheel', e => { if (state === 'play' && P.mode === 'jet' && P.jet) P.jet.throttle = clamp(P.jet.throttle - e.deltaY * .0006, 0, 1); }, { passive: true });
+let fsT = 0;
+function toggleFullscreen() {
+  fsT = performance.now();
+  try {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else { const p = document.documentElement.requestFullscreen(); if (p && p.then) p.then(() => { if (state === 'play' && !noLock) lockPointer(); }).catch(() => { }); }
+  } catch (err) { }
+}
 window.addEventListener('keydown', e => {
+  if (e.altKey && (e.code === 'Enter' || e.code === 'NumpadEnter')) { e.preventDefault(); if (!e.repeat) toggleFullscreen(); return; }
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) return; keys[e.code] = true; if (state === 'play') pressed(e.code);
   else if (state === 'pause' && (e.code === 'Escape' || e.code === 'Enter')) resume();
@@ -182,7 +191,7 @@ function lockAudio(dt, j) {
 
 /* ---------------------------------------------------------------- state changes */
 const KEYHELP = `
-<p>Press <span class="k">Tab</span> in game for the controls list at any time.</p><p class="sec">ON FOOT</p>
+<p><span class="k">Alt</span>+<span class="k">Enter</span> toggles full screen. Press <span class="k">Tab</span> in game for the controls list at any time.</p><p class="sec">ON FOOT</p>
 <p><span class="k">W A S D</span> move &nbsp; <span class="k">Mouse</span> look &nbsp; <span class="k">Shift</span> sprint &nbsp; <span class="k">Space</span> jump &nbsp; <span class="k">LMB</span> fire &nbsp; <span class="k">1 2 3</span> rifle / shotgun / silver blade &nbsp; <span class="k">R</span> reload</p>
 <p><span class="k">E</span> board a parked jet (walk up to it) &nbsp; <span class="k">M</span> map &nbsp; <span class="k">N</span> cycle navigation waypoint</p>
 <p class="sec">IN THE JET</p>
@@ -354,7 +363,7 @@ const HELP = [
   ['JET - FLYING', [['Shift', 'Throttle up (afterburner at max)'], ['Z', 'Throttle down'], ['X', 'Throttle idle'], ['Mouse wheel', 'Throttle'], ['S / W', 'Pull up / push down'], ['A / D', 'Roll (steers on the ground)'], ['Mouse', 'Virtual stick (pitch and roll)'], ['B', 'Brake / airbrake'], ['G', 'Landing gear up / down'], ['I', 'Invert pitch'], ['L', 'Flight assist (auto-level) on / off']]],
   ['JET - COMBAT', [['Space / Left click', 'Cannon'], ['F / Right click', 'Fire missile (needs lock to home)'], ['T', 'Cycle radar lock target'], ['Q', 'Flares (destroy homing blood bolts)'], ['V', 'Cockpit / chase view']]],
   ['TAKEOFF & LANDING', [['Takeoff', 'Full throttle, hold S past rotate speed, then G (gear up)'], ['Landing', 'Gear down, ~70-90 m/s, gentle descent, flat ground'], ['After landing', 'Stop, then E to exit. Fields re-arm and repair you']]],
-  ['ANYWHERE', [['M', 'Full navigation map'], ['N', 'Cycle navigation waypoint'], ['Tab', 'This help'], ['Esc', 'Pause / close']]]
+  ['ANYWHERE', [['M', 'Full navigation map'], ['N', 'Cycle navigation waypoint'], ['Tab', 'This help'], ['Alt + Enter', 'Toggle full screen'], ['Esc', 'Pause / close']]]
 ];
 function drawHelp() {
   hx.fillStyle = 'rgba(0,6,12,.84)'; hx.fillRect(0, 0, SW, SH);
