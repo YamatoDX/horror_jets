@@ -6,7 +6,7 @@ const P = {
   mode: 'foot', pos: new V3(), yaw: 0, pitch: 0, vy: 0, grounded: true, hp: 100, maxhp: 100, jet: null, weapon: 0, mag: [30, 6], res: [180, 36],
   reloadT: 0, fireT: 0, swing: 0, kills: 0, score: 0, lords: 0, hitT: 0, hitKill: false, hurtT: 0, flares: 8, nav: 0, cockpit: false, bob: 0, stepT: 0, invert: false, map: false, near: null
 };
-let state = 'title', gameT = 0, last = 0, noLock = false;
+let state = 'title', gameT = 0, last = 0, noLock = false, victoryT = 0;
 const keys = {}, mouse = { l: false, r: false, dx: 0, dy: 0 }, stick = { x: 0, y: 0 }, JI = { pitch: 0, roll: 0, thr: 0, brake: false, fire: false, missile: false, assist: true };
 let msgs = [];
 function addMsg(text, dur) { msgs.push({ text, t: dur || 4, max: dur || 4 }); if (msgs.length > 4) msgs.shift(); }
@@ -57,6 +57,12 @@ function navList() {
   return l;
 }
 function navTarget() { if (!P.nav) return null; const l = navList(); return l[(P.nav - 1) % l.length]; }
+function guideToLord() {
+  const pp = playerXZ(), list = navList();
+  const targets = list.map((t, i) => ({ t, i })).filter(o => o.i >= ISL.length);
+  targets.sort((a, b) => Math.hypot(a.t.x - pp.x, a.t.z - pp.z) - Math.hypot(b.t.x - pp.x, b.t.z - pp.z));
+  P.nav = targets.length ? targets[0].i + 1 : 0;
+}
 
 /* ---------------------------------------------------------------- player actions */
 function raySphere(o, d, c, r) { const ox = c.x - o.x, oy = c.y - o.y, oz = c.z - o.z, t = ox * d.x + oy * d.y + oz * d.z; if (t < 0) return -1; const px = o.x + d.x * t - c.x, py = o.y + d.y * t - c.y, pz = o.z + d.z * t - c.z; return px * px + py * py + pz * pz < r * r ? t : -1; }
@@ -64,7 +70,8 @@ function hitMarker(kill) { P.hitT = .22; P.hitKill = kill; if (!kill) sfx.hit();
 function onKill(e, self) { if (!self) { P.kills++; P.score += e.def.score; } }
 function onLordKilled(e) {
   P.lords++; addMsg('NOSFERATU LORD SLAIN  (' + P.lords + '/3)', 6); const s = ISL[e.isl]; if (s.beam) s.beam.visible = false; sfx.thunder();
-  if (P.lords >= 3) setTimeout(win, 3500);
+  if (P.lords >= 3) victoryT = 3.5;
+  else guideToLord();
 }
 function pickupFx(type) { sfx.pickup(); if (type === 'hp') { P.hp = Math.min(P.maxhp, P.hp + 30); addMsg('+30 health', 2); } else { P.res[0] += 60; P.res[1] += 8; addMsg('Ammo restored', 2); } }
 function hurtPlayer(n, kind) {
@@ -84,6 +91,7 @@ function nearestJet() {
 }
 function boardJet(j) {
   P.mode = 'jet'; P.jet = j; j.occupied = true; j.fireT = 0; stick.x = stick.y = 0; LOCK.t = null; LOCK.p = 0; VM.list.forEach(g => g.visible = false); jetCamera.q = null;
+  guideToLord();
   addMsg('Boarded ' + j.d.name + ' — Shift: throttle up, hold S to rotate at speed, G: gear', 6); sfx.gear();
 }
 function exitJet() {
@@ -168,14 +176,14 @@ function launchFlare() {
 const lockEl = document.body;
 function lockPointer() { try { const p = document.body.requestPointerLock(); if (p && p.catch) p.catch(() => { noLock = true; }); } catch (e) { noLock = true; } }
 document.addEventListener('pointerlockerror', () => { noLock = true; });
-document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && state === 'play' && !noLock && performance.now() - fsT > 1500) pause(); });
-document.addEventListener('mousemove', e => { if (state !== 'play' || (!document.pointerLockElement && !noLock)) return; mouse.dx += e.movementX || 0; mouse.dy += e.movementY || 0; });
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && state === 'play' && !P.help && !noLock && performance.now() - fsT > 1500) pause(); });
+document.addEventListener('mousemove', e => { if (state !== 'play' || P.map || P.help || (!document.pointerLockElement && !noLock)) return; mouse.dx += e.movementX || 0; mouse.dy += e.movementY || 0; });
 document.addEventListener('mousedown', e => {
-  if (state !== 'play') return; if (e.button === 0) mouse.l = true; if (e.button === 2) { mouse.r = true; if (P.mode === 'jet') JI.missile = true; else if (WEAP[P.weapon].t === 'sword') startThunder(); }
+  if (state !== 'play' || P.map || P.help) return; if (e.button === 0) mouse.l = true; if (e.button === 2) { mouse.r = true; if (P.mode === 'jet') JI.missile = true; else if (WEAP[P.weapon].t === 'sword') startThunder(); }
 });
 document.addEventListener('mouseup', e => { if (e.button === 0) mouse.l = false; if (e.button === 2) mouse.r = false; });
 document.addEventListener('contextmenu', e => e.preventDefault());
-document.addEventListener('wheel', e => { if (state !== 'play') return; if (P.mode === 'jet' && P.jet) P.jet.throttle = clamp(P.jet.throttle - e.deltaY * .0006, 0, 1); else if (Math.abs(e.deltaY) > 1 && performance.now() - (P._wh || 0) > 120) { P._wh = performance.now(); switchWeapon(P.weapon + (e.deltaY > 0 ? 1 : -1)); } }, { passive: true });
+document.addEventListener('wheel', e => { if (state !== 'play' || P.map || P.help) return; if (P.mode === 'jet' && P.jet) P.jet.throttle = clamp(P.jet.throttle - e.deltaY * .0006, 0, 1); else if (Math.abs(e.deltaY) > 1 && performance.now() - (P._wh || 0) > 120) { P._wh = performance.now(); switchWeapon(P.weapon + (e.deltaY > 0 ? 1 : -1)); } }, { passive: true });
 let fsT = 0;
 function toggleFullscreen() {
   fsT = performance.now();
@@ -186,16 +194,40 @@ function toggleFullscreen() {
 }
 window.addEventListener('keydown', e => {
   if (e.altKey && (e.code === 'Enter' || e.code === 'NumpadEnter')) { e.preventDefault(); if (!e.repeat) toggleFullscreen(); return; }
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
+  if (state === 'play' && (e.code === 'Tab' || !P.help && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code))) e.preventDefault();
+  if (state !== 'play' && e.target instanceof HTMLElement && e.target.closest('button, input, summary')) {
+    if (state !== 'pause' || e.code !== 'Escape') return;
+  }
   if (e.repeat) return; keys[e.code] = true; if (state === 'play') pressed(e.code);
   else if (state === 'pause' && (e.code === 'Escape' || e.code === 'Enter')) resume();
+  else if (state === 'title' && e.code === 'Enter') startGame();
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
-window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouse.l = mouse.r = false; });
+function clearInput() {
+  for (const k in keys) keys[k] = false;
+  mouse.l = mouse.r = false; mouse.dx = mouse.dy = 0;
+  stick.x = stick.y = 0; JI.fire = JI.missile = false; P._held = false;
+}
+window.addEventListener('blur', () => { clearInput(); pause(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 function pressed(c) {
   const j = P.jet;
-  if (c === 'Tab') { P.help = !P.help; return; }
-  if (c === 'KeyM') { P.map = !P.map; return; } if (c === 'Escape') { if (P.map) P.map = false; P.help = false; return; }
+  if (c === 'Tab') {
+    if (P.help) closeHelp();
+    else {
+      P.help = true; P.map = false; clearInput();
+      showOverlay(`<div class="panel"><p class="eyebrow">FLIGHT MANUAL / SIMULATION PAUSED</p><h1>CONTROLS</h1>
+<div class="actions"><button class="primary" data-action="close-help">Return to sortie [Tab]</button></div>${KEYHELP}</div>`);
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+    return;
+  }
+  if (c === 'KeyM') { if (P.help) closeHelp(); P.map = !P.map; clearInput(); return; }
+  if (c === 'Escape' || c === 'KeyP') {
+    if (P.help) closeHelp(); else if (P.map) { P.map = false; clearInput(); } else pause();
+    return;
+  }
+  if (P.help || (P.map && c !== 'KeyN')) return;
   if (c === 'KeyN') { P.nav = (P.nav + 1) % (navList().length + 1); const t = navTarget(); addMsg(t ? 'Navigation: ' + t.name : 'Navigation cleared', 2.5); sfx.beep(900, .06); return; }
   if (c === 'KeyE') { if (P.mode === 'foot') { const n = nearestJet(); if (n) boardJet(n); else addMsg('No jet in reach — walk to one of the parked fighters', 2.5); } else exitJet(); return; }
   if (P.mode === 'foot') {
@@ -209,7 +241,7 @@ function pressed(c) {
 
 /* ---------------------------------------------------------------- update: on foot */
 function updateFoot(dt) {
-  const zm = WEAP[P.weapon].zoom && mouse.r, ms = zm ? .0022 * WEAP[P.weapon].zoom / 76 : .0022; P.yaw -= mouse.dx * ms; P.pitch = clamp(P.pitch - mouse.dy * ms, -1.5, 1.5);
+  const zm = WEAP[P.weapon].zoom && mouse.r, ms = (zm ? .0022 * WEAP[P.weapon].zoom / 76 : .0022) * OPTIONS.sensitivity / 100; P.yaw -= mouse.dx * ms; P.pitch = clamp(P.pitch - mouse.dy * ms, -1.5, 1.5);
   const sp = keys.ShiftLeft || keys.ShiftRight, fw = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0), st = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   const spd = (sp && fw > 0 ? 9.5 : 5.6) * (P.weapon === 2 ? 1.1 : 1), sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
   let vx = (-sy * fw + cy * st), vz = (-cy * fw - sy * st); const l = Math.hypot(vx, vz); if (l > 0) { vx = vx / l * spd * dt; vz = vz / l * spd * dt; }
@@ -219,8 +251,8 @@ function updateFoot(dt) {
   pushOut(P.pos, .5);
   P.vy -= 20 * dt; P.pos.y += P.vy * dt; const g2 = groundH(P.pos.x, P.pos.z); if (P.pos.y <= g2) { P.pos.y = g2; P.vy = 0; P.grounded = true; } else P.grounded = P.pos.y - g2 < .05;
   if (l > 0 && P.grounded) { P.bob += dt * spd * 1.5; P.stepT -= dt; if (P.stepT <= 0) { P.stepT = sp ? .3 : .45; sfx.step(); } }
-  camera.position.set(P.pos.x, P.pos.y + 1.7 + Math.sin(P.bob) * .035 * (l > 0 ? 1 : 0), P.pos.z); camera.quaternion.setFromEuler(_e.set(P.pitch, P.yaw, 0, 'YXZ'));
-  const tf = zm ? WEAP[P.weapon].zoom : 76 + (sp && fw > 0 ? 5 : 0); camera.fov += (tf - camera.fov) * clamp(dt * 8, 0, 1); camera.updateProjectionMatrix();
+  camera.position.set(P.pos.x, P.pos.y + 1.7 + Math.sin(P.bob) * .035 * (l > 0 && !OPTIONS.reducedMotion ? 1 : 0), P.pos.z); camera.quaternion.setFromEuler(_e.set(P.pitch, P.yaw, 0, 'YXZ'));
+  const tf = zm ? WEAP[P.weapon].zoom : 76 + (sp && fw > 0 && !OPTIONS.reducedMotion ? 5 : 0); camera.fov += (tf - camera.fov) * clamp(dt * 8, 0, 1); camera.updateProjectionMatrix();
   P.fireT -= dt; const w = WEAP[P.weapon];
   if (P.thCD > 0) P.thCD -= dt; if (P.flashT > 0) P.flashT -= dt;
   if (P.chant > 0) { P.chant -= dt; if (P.chant <= 0) thunderStrike(); }
@@ -239,7 +271,7 @@ function updateFoot(dt) {
 /* ---------------------------------------------------------------- update: flying */
 function updateFly(dt) {
   const j = P.jet, inv = P.invert ? -1 : 1;
-  stick.x = clamp(stick.x + mouse.dx * .0042, -1, 1); stick.y = clamp(stick.y + mouse.dy * .0042 * inv, -1, 1);
+  stick.x = clamp(stick.x + mouse.dx * .0042 * OPTIONS.sensitivity / 100, -1, 1); stick.y = clamp(stick.y + mouse.dy * .0042 * inv * OPTIONS.sensitivity / 100, -1, 1);
   const rx = Math.exp(-dt * .9); stick.x *= rx; stick.y *= rx;
   JI.pitch = clamp(((keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0)) * inv + stick.y, -1, 1);
   JI.roll = clamp((keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + stick.x, -1, 1);
@@ -269,13 +301,32 @@ const KEYHELP = `
 <p><span class="k">Space</span> / <span class="k">LMB</span> cannon &nbsp; <span class="k">F</span> / <span class="k">RMB</span> missile &nbsp; <span class="k">T</span> cycle radar lock &nbsp; <span class="k">Q</span> flares &nbsp; <span class="k">V</span> cockpit view</p>
 <p><b>Take off:</b> full throttle, hold <span class="k">S</span> past ~75 m/s, gear up with <span class="k">G</span>. <b>Land:</b> gear down, ~70-90 m/s, gentle descent, flat ground — then stop and press <span class="k">E</span>. Landing at a field re-arms and repairs.</p>`;
 function showOverlay(h) { ov.innerHTML = h; ov.classList.remove('hide'); }
-function hideOverlay() { ov.classList.add('hide'); }
+function hideOverlay() { if (ov.contains(document.activeElement)) document.activeElement.blur(); ov.classList.add('hide'); }
+function closeHelp() { P.help = false; clearInput(); hideOverlay(); lockPointer(); }
+function settingsPanel() {
+  return `<details><summary>Sound &amp; comfort</summary><div class="settings">
+<label>Volume<input data-option="volume" aria-label="Volume" type="range" min="0" max="100" value="${OPTIONS.volume}"><output>${OPTIONS.volume}%</output></label>
+<label>Mouse sensitivity<input data-option="sensitivity" aria-label="Mouse sensitivity" type="range" min="25" max="200" value="${OPTIONS.sensitivity}"><output>${OPTIONS.sensitivity}%</output></label>
+<label class="check"><input data-option="reducedMotion" type="checkbox" ${OPTIONS.reducedMotion ? 'checked' : ''}>Reduce camera shake, head bob &amp; flashes</label>
+<p class="footnote">Settings save automatically on this device.</p></div></details>`;
+}
+ov.addEventListener('input', e => {
+  const key = e.target.dataset.option; if (!Object.hasOwn(OPTIONS, key)) return;
+  OPTIONS[key] = e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value);
+  const output = e.target.nextElementSibling; if (output) output.textContent = OPTIONS[key] + '%';
+  if (master && AC) master.gain.setTargetAtTime(state === 'play' ? OPTIONS.volume / 100 : 0, AC.currentTime, .05);
+  saveOptions();
+});
 function titleScreen() {
   state = 'title';
-  showOverlay(`<h1>NOSFERATU</h1><h2>Blood Moon Sorties</h2>
-<p>Three haunted islands lie in a black sea. On each, a <b>Nosferatu Lord</b> broods in its crypt beneath a blood-red beam, and an army of ghouls, wraiths, banshees, lycans, golems and flying vampires walks the open fields.</p>
-<p>Parked on every airfield: an <b>F-14 Tomcat</b>, an <b>F/A-18 Hornet</b> and an <b>F-22 Raptor</b>. Take off, lock on and burn them out of the sky. <b>Slay all three Lords.</b></p>${KEYHELP}
-<div class="go">— click to begin —</div>`);
+  showOverlay(`<div class="panel"><p class="eyebrow">A NIGHT FLIGHT OVER THE BLACK SEA</p><h1>NOSFERATU</h1><h2>Blood Moon Sorties</h2>
+<p class="intro">Three islands. Three vampire Lords. Take a fighter into the blood moon and bring the dawn.</p>
+<div class="steps"><div class="step"><b>01 / FIND YOUR FIGHTER</b><span>WASD to move. Follow the airfield guide, then press E beside a parked jet.</span></div>
+<div class="step"><b>02 / TAKE TO THE SKY</b><span>Hold Shift for throttle. Hold S at takeoff speed. Press G to raise your gear.</span></div>
+<div class="step"><b>03 / HUNT THE LORDS</b><span>Follow the gold waypoint. Aim to lock on, then F to launch a missile.</span></div></div>
+<div class="actions"><button class="primary" data-action="start">Begin sortie <small>[Enter]</small></button></div>
+<p class="footnote">Free-flight arsenal &bull; Infinite health and ammo &bull; Keyboard + mouse<br>Esc pauses &middot; M opens the map &middot; Tab shows controls</p>
+${settingsPanel()}<details><summary>Full flight manual &amp; controls</summary>${KEYHELP}</details></div>`);
 }
 function startGame() {
   initAudio(); hideOverlay(); state = 'play'; last = performance.now();
@@ -283,8 +334,15 @@ function startGame() {
   addMsg('Walk to the parked jets and press E to board. Press M for the map, Tab for all controls.', 8); addMsg('Objective: slay the 3 Nosferatu Lords', 8);
   lockPointer();
 }
-function pause() { if (state !== 'play') return; state = 'pause'; P.map = false; showOverlay(`<h1>PAUSED</h1>${KEYHELP}<div class="go">— click to resume —</div>`); }
-function resume() { initAudio(); hideOverlay(); state = 'play'; last = performance.now(); lockPointer(); }
+function pause() {
+  if (state !== 'play') return; state = 'pause'; P.map = P.help = false; clearInput();
+  if (document.pointerLockElement) document.exitPointerLock();
+  if (master && AC) master.gain.setTargetAtTime(0, AC.currentTime, .05);
+  showOverlay(`<div class="panel"><p class="eyebrow">SORTIE ON HOLD</p><h1>PAUSED</h1><p class="intro">${P.lords}/3 Lords slain &middot; ${P.kills} kills &middot; ${P.score} points</p>
+<div class="actions"><button class="primary" data-action="resume">Resume sortie <small>[Esc]</small></button></div>
+${settingsPanel()}<details><summary>Flight manual &amp; controls</summary>${KEYHELP}</details></div>`);
+}
+function resume() { clearInput(); initAudio(); if (master && AC) master.gain.setTargetAtTime(OPTIONS.volume / 100, AC.currentTime, .05); hideOverlay(); state = 'play'; last = performance.now(); lockPointer(); }
 function die(by) {
   state = 'dead'; if (document.exitPointerLock) document.exitPointerLock();
   showOverlay(`<h1>YOU HAVE BEEN CLAIMED</h1><h2>The night is long</h2><p>Kills: ${P.kills} &nbsp; Score: ${P.score} &nbsp; Lords slain: ${P.lords}/3</p><div class="go">— click to rise again —</div>`);
@@ -293,7 +351,13 @@ function win() {
   if (state !== 'play') return; state = 'win'; if (document.exitPointerLock) document.exitPointerLock();
   showOverlay(`<h1 style="color:#e8c860">DAWN BREAKS</h1><h2>The three Lords are dust</h2><p>Kills: ${P.kills} &nbsp; Score: ${P.score}</p><div class="go">— click to fly again —</div>`);
 }
-ov.addEventListener('click', () => { if (state === 'title') startGame(); else if (state === 'pause') resume(); else if (state === 'dead' || state === 'win') location.reload(); });
+ov.addEventListener('click', e => {
+  const action = e.target.closest('[data-action]');
+  if (action && action.dataset.action === 'start' && state === 'title') startGame();
+  else if (action && action.dataset.action === 'resume' && state === 'pause') resume();
+  else if (action && action.dataset.action === 'close-help' && P.help) closeHelp();
+  else if (state === 'dead' || state === 'win') location.reload();
+});
 
 /* ---------------------------------------------------------------- HUD helpers */
 const HG = '#7dffb4', HR = '#ff5a5a', HY = '#ffd35a';
@@ -362,6 +426,7 @@ function drawCommon() {
   if (P.hurtT > 0) { const g = hx.createRadialGradient(SW / 2, SH / 2, SH * .3, SW / 2, SH / 2, SH * .8); g.addColorStop(0, 'rgba(160,0,0,0)'); g.addColorStop(1, 'rgba(160,0,0,' + (P.hurtT * 1.2) + ')'); hx.fillStyle = g; hx.fillRect(0, 0, SW, SH); }
 }
 function drawFootHUD() {
+  drawGuide();
   const cx = SW / 2, cy = SH / 2, w = WEAP[P.weapon];
   hx.strokeStyle = 'rgba(240,235,210,.85)'; hx.lineWidth = 2; if (w.t !== 'sword') { hx.beginPath(); hx.moveTo(cx - 12, cy); hx.lineTo(cx - 4, cy); hx.moveTo(cx + 4, cy); hx.lineTo(cx + 12, cy); hx.moveTo(cx, cy - 12); hx.lineTo(cx, cy - 4); hx.moveTo(cx, cy + 4); hx.lineTo(cx, cy + 12); hx.stroke(); } else { hx.beginPath(); hx.arc(cx, cy, 3, 0, TAU); hx.stroke(); }
   if (P.hitT > 0) { hx.strokeStyle = P.hitKill ? '#ff3030' : '#fff'; hx.lineWidth = 2.5; hx.beginPath(); for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { hx.moveTo(cx + a * 7, cy + b * 7); hx.lineTo(cx + a * 15, cy + b * 15); } hx.stroke(); }
@@ -370,13 +435,14 @@ function drawFootHUD() {
   txt(w.name, SW - 28, SH - 100, 16, '#e8d8c0', 'right', true);
   if (w.t !== 'sword') txt('AMMO  ∞', SW - 28, SH - 78, 22, w.sup ? '#80f0ff' : '#e8d8c0', 'right', true); else txt(P.thCD > 0 ? 'THUNDER recharging' : 'THUNDER ready (RMB)', SW - 28, SH - 78, 16, P.thCD > 0 ? HR : HY, 'right', true);
   txt('1-9 0 - =  /  wheel  /  Q ]  switch weapon', SW - 28, SH - 120, 11, '#9a927e', 'right');
-  if (P.flashT > 0) { hx.fillStyle = 'rgba(220,235,255,' + clamp(P.flashT * 1.6, 0, .8) + ')'; hx.fillRect(0, 0, SW, SH); }
+  if (P.flashT > 0 && !OPTIONS.reducedMotion) { hx.fillStyle = 'rgba(220,235,255,' + clamp(P.flashT * 1.6, 0, .8) + ')'; hx.fillRect(0, 0, SW, SH); }
   if (w.zoom && mouse.r) { const R = Math.min(SW, SH) * .42; hx.fillStyle = '#000'; hx.beginPath(); hx.rect(0, 0, SW, SH); hx.arc(cx, cy, R, 0, TAU, true); hx.fill(); hx.strokeStyle = '#000'; hx.lineWidth = 2; hx.beginPath(); hx.moveTo(cx - R, cy); hx.lineTo(cx + R, cy); hx.moveTo(cx, cy - R); hx.lineTo(cx, cy + R); hx.stroke(); }
   if (P.near && !P.map) { const j = P.near; txt('[E] BOARD ' + j.d.name, cx, SH * .62, 20, HY, 'center', true); txt(j.d.blurb, cx, SH * .62 + 22, 13, '#cfc6b4', 'center'); }
   // threat indicator: nearby monsters
   const near = enemies.filter(e => e.alive && e.dist < 60).length; if (near) txt('HOSTILES NEARBY: ' + near, cx, SH - 24, 14, HR, 'center', true);
 }
 function drawJetHUD() {
+  drawGuide();
   const j = P.jet; if (!j) return; const d = j.d, f = _f.set(0, 0, -1).applyQuaternion(j.q).clone(), up = _u.set(0, 1, 0).applyQuaternion(j.q).clone(), rt = _r.set(1, 0, 0).applyQuaternion(j.q).clone();
   const pitch = Math.asin(clamp(f.y, -1, 1)), roll = Math.atan2(rt.y, up.y), spd = j.vel.length(), gh = Math.max(groundH(j.pos.x, j.pos.z), 0), agl = j.pos.y - d.gearH - gh;
   const [nx, ny] = scr(_g.copy(j.pos).addScaledVector(f, 1200)), cx = SW / 2, ppr = SH / (camera.fov * DEG) * 1.0;
@@ -454,8 +520,47 @@ function drawCockpitFrame() {
   if (P.cockpit && P.mode === 'jet') { const g = hx.createLinearGradient(0, SH * .7, 0, SH); g.addColorStop(0, 'rgba(8,10,14,0)'); g.addColorStop(1, 'rgba(8,10,14,.9)'); hx.fillStyle = g; hx.fillRect(0, SH * .7, SW, SH * .3); hx.fillStyle = '#0a0c10'; hx.beginPath(); hx.moveTo(0, 0); hx.lineTo(SW * .09, 0); hx.lineTo(SW * .02, SH); hx.lineTo(0, SH); hx.fill(); hx.beginPath(); hx.moveTo(SW, 0); hx.lineTo(SW * .91, 0); hx.lineTo(SW * .98, SH); hx.lineTo(SW, SH); hx.fill(); }
 }
 /* ---------------------------------------------------------------- main loop */
+function drawGuide() {
+  if (P.lords >= 3) return;
+  let title, hint;
+  if (P.mode === 'foot') {
+    let jet = null, distance = Infinity;
+    for (const j of jets) {
+      if (!j.alive || j.occupied) continue;
+      const d = Math.hypot(j.pos.x - P.pos.x, j.pos.z - P.pos.z);
+      if (d < distance) { jet = j; distance = d; }
+    }
+    title = P.near ? 'BOARD YOUR FIGHTER' : 'REACH THE AIRFIELD';
+    hint = P.near ? 'Press E to board ' + P.near.d.name : 'WASD move / Shift sprint';
+    if (jet && !P.near) {
+      const [x, y, ok] = scr(_g.copy(jet.pos));
+      if (ok && x > 100 && x < SW - 100 && y > 180 && y < SH - 140) {
+        txt('FIGHTER / ' + Math.round(distance) + ' m', x, y - 22, 13, HY, 'center', true);
+        txt('v', x, y - 4, 18, HY, 'center');
+      }
+      const bearing = Math.atan2(jet.pos.x - P.pos.x, -(jet.pos.z - P.pos.z));
+      const turn = angDiff(bearing, heading()) / DEG;
+      hint = Math.round(distance) + ' m / ' + (Math.abs(turn) < 20 ? 'Ahead' : turn > 0 ? 'Turn right' : 'Turn left') + ' / Shift to sprint';
+    }
+  } else {
+    const j = P.jet;
+    if (j.onGround) {
+      title = j.gs < j.d.vr ? 'BUILD TAKEOFF SPEED' : 'ROTATE';
+      hint = j.gs < j.d.vr ? 'Hold Shift / target ' + Math.round(j.d.vr) + ' m/s' : 'Hold S to lift off';
+    } else if (j.gearDown) { title = 'CLEAN UP FOR FLIGHT'; hint = 'Press G to raise landing gear'; }
+    else if (!LOCK.t) { title = 'HUNT THE REMAINING LORDS'; hint = 'Gold waypoint / aim to lock / T cycle'; }
+    else { title = 'TARGET LOCKED'; hint = 'F missile / Left click cannon / Q flares'; }
+  }
+  const width = Math.min(350, SW - 48);
+  hx.fillStyle = 'rgba(6,12,19,.78)'; hx.fillRect(24, 108, width, 60);
+  hx.fillStyle = HY; hx.fillRect(24, 108, 3, 60);
+  txt(title, 36, 130, 13, HY, 'left', true);
+  txt(hint, 36, 151, Math.min(12, (width - 24) / (hint.length * .61)), '#dfd9cb');
+  txt('M map / Tab controls / Esc pause', SW / 2, SH - 6, 11, '#b8c8bc', 'center');
+}
 function update(dt) {
   gameT += dt; const t = gameT;
+  if (victoryT > 0) { victoryT -= dt; if (victoryT <= 0) { win(); return; } }
   if (P.hurtT > 0) P.hurtT -= dt; if (P.hitT > 0) P.hitT -= dt;
   msgs.forEach(m => m.t -= dt); msgs = msgs.filter(m => m.t > 0);
   if (P.mode === 'foot') { VM.list.forEach((g, i) => g.visible = i === P.weapon); updateFoot(dt); } else { VM.list.forEach(g => g.visible = false); updateFly(dt); if (P.mode === 'foot') { updateFoot(dt); } }
@@ -464,7 +569,7 @@ function update(dt) {
   if (P.mode !== 'jet') { LOCK.t = null; LOCK.c = null; LOCK.p = 0; LOCK.list.length = 0; }
   updateBullets(dt); updateMissiles(dt); updateEnemies(dt, t); updateFX(dt); updateWorld(t); updateOcean(t);
   sky.position.copy(camera.position);
-  if (shakeAmt > .01) { camera.position.x += rand(-1, 1) * shakeAmt * .05; camera.position.y += rand(-1, 1) * shakeAmt * .05; shakeAmt *= Math.exp(-dt * 5); } else shakeAmt = 0;
+  if (shakeAmt > .01 && !OPTIONS.reducedMotion) { camera.position.x += rand(-1, 1) * shakeAmt * .05; camera.position.y += rand(-1, 1) * shakeAmt * .05; shakeAmt *= Math.exp(-dt * 5); } else shakeAmt = 0;
   const j = P.jet; audioUpdate(P.mode === 'jet' && j, j ? j.throttle : 0, j ? j.vel.length() : 0);
 }
 function render() {
@@ -472,12 +577,14 @@ function render() {
   hx.clearRect(0, 0, SW, SH);
   if (state === 'title') return;
   if (P.map) { drawFullMap(); return; }
-  if (P.help) { drawCockpitFrame(); drawCommon(); drawHelp(); return; }
+  if (P.help) return;
   drawCockpitFrame(); drawCommon(); if (P.mode === 'jet') drawJetHUD(); else drawFootHUD();
 }
 function frame(now) {
   requestAnimationFrame(frame); const dt = Math.min((now - last) / 1000 || .016, .05); last = now;
-  if (state === 'play') update(dt); else { updateOcean(now / 1000); updateFX(dt); }
+  if (state === 'play' && !P.map && !P.help) update(dt);
+  else if (state === 'title') { updateOcean(now / 1000); updateFX(dt); }
+  if (master && AC) master.gain.setTargetAtTime(state === 'play' && !P.map && !P.help ? OPTIONS.volume / 100 : 0, AC.currentTime, .05);
   render();
 }
 /* title-screen backdrop: slow orbit over Blackmoor */

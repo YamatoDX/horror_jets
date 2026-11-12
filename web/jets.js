@@ -296,5 +296,5 @@ function jetCamera(j, dt, cockpit) {
     j.mesh.visible = true; jetCamera.q.slerp(j.q, 1 - Math.exp(-dt * 7)); camera.position.set(...d.cam).applyQuaternion(jetCamera.q).add(j.pos); camera.quaternion.copy(jetCamera.q);
     const gh = groundH(camera.position.x, camera.position.z); if (camera.position.y < gh + 2) camera.position.y = gh + 2;
   }
-  camera.fov = 70 + (j.ab ? 7 : 0) + clamp(j.vel.length() / 400, 0, 1) * 5; camera.updateProjectionMatrix();
+  camera.fov = 70 + (OPTIONS.reducedMotion ? 0 : (j.ab ? 7 : 0) + clamp(j.vel.length() / 400, 0, 1) * 5); camera.updateProjectionMatrix();
 }
